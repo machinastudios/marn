@@ -221,33 +221,41 @@ init_marn() {
     fi
 }
 
-# Link current project to local Maven repository (.m2)
-link_project() {
-    # Check if pom.xml exists
-    if [ ! -f "$POM_FILE" ]; then
-        echo -e "${RED}Error: pom.xml not found${NC}"
-        echo "Please run 'marn link' from a Maven project directory."
-        exit 1
-    fi
+# Build local dependencies (DRY function)
+build_local_dependencies() {
+    local skip_tests=$1
+    skip_tests="${skip_tests:-true}"
     
-    echo -e "${BLUE}Linking project to local Maven repository...${NC}"
-    echo ""
-    
-    cd "$CURRENT_DIR"
-    
-    # Run mvn install to add to .m2
-    echo -e "${GREEN}Installing project to ~/.m2/repository...${NC}"
-    mvn clean install -DskipTests
-    
-    if [ $? -eq 0 ]; then
+    LOCAL_DEPS=$(get_local_dependencies)
+    if [ -n "$LOCAL_DEPS" ]; then
+        echo -e "${YELLOW}Building local dependencies first...${NC}"
+        for dep_path in $LOCAL_DEPS; do
+            # Resolve relative paths
+            if [[ "$dep_path" != /* ]]; then
+                dep_path="${CURRENT_DIR}/${dep_path}"
+            fi
+            
+            # Check if it's a valid Maven project
+            if [ -f "${dep_path}/pom.xml" ]; then
+                echo -e "${BLUE}Building dependency: ${dep_path}${NC}"
+                cd "$dep_path"
+                if [ "$skip_tests" = "true" ]; then
+                    mvn clean install -DskipTests > /dev/null 2>&1
+                else
+                    mvn clean install > /dev/null 2>&1
+                fi
+                if [ $? -ne 0 ]; then
+                    echo -e "${RED}Failed to build dependency: ${dep_path}${NC}"
+                    cd "$CURRENT_DIR"
+                    return 1
+                fi
+                echo -e "${GREEN}✓ Dependency built: ${dep_path}${NC}"
+            fi
+        done
+        cd "$CURRENT_DIR"
         echo ""
-        echo -e "${GREEN}✓ Project linked to local Maven repository!${NC}"
-        echo ""
-        echo "Other projects can now use this as a dependency."
-    else
-        echo -e "${RED}✗ Failed to link project${NC}"
-        exit 1
     fi
+    return 0
 }
 
 # Link current project to local Maven repository (.m2)
@@ -432,32 +440,8 @@ watch_mode() {
     cd "$CURRENT_DIR"
 
     # Build local dependencies first
-    if [ -n "$LOCAL_DEPS" ]; then
-        echo -e "${YELLOW}Building local dependencies first...${NC}"
-        for dep_path in $LOCAL_DEPS; do
-            # Resolve relative paths
-            if [[ "$dep_path" != /* ]]; then
-                dep_path="${CURRENT_DIR}/${dep_path}"
-            fi
-            
-            # Check if it's a valid Maven project
-            if [ -f "${dep_path}/pom.xml" ]; then
-                echo -e "${BLUE}Linking dependency: ${dep_path}${NC}"
-                cd "$dep_path"
-                if [ "$SKIP_TESTS" = "true" ]; then
-                    mvn clean install -DskipTests > /dev/null 2>&1
-                else
-                    mvn clean install > /dev/null 2>&1
-                fi
-                if [ $? -eq 0 ]; then
-                    echo -e "${GREEN}✓ Dependency linked: ${dep_path}${NC}"
-                else
-                    echo -e "${RED}Failed to link dependency: ${dep_path}${NC}"
-                fi
-            fi
-        done
-        cd "$CURRENT_DIR"
-        echo ""
+    if ! build_local_dependencies "$SKIP_TESTS"; then
+        exit 1
     fi
 
     # Initial build
@@ -578,29 +562,8 @@ case "$1" in
         cd "$CURRENT_DIR"
         
         # Build local dependencies first
-        LOCAL_DEPS=$(get_local_dependencies)
-        if [ -n "$LOCAL_DEPS" ]; then
-            echo -e "${YELLOW}Building local dependencies first...${NC}"
-            for dep_path in $LOCAL_DEPS; do
-                # Resolve relative paths
-                if [[ "$dep_path" != /* ]]; then
-                    dep_path="${CURRENT_DIR}/${dep_path}"
-                fi
-                
-                # Check if it's a valid Maven project
-                if [ -f "${dep_path}/pom.xml" ]; then
-                    echo -e "${BLUE}Building dependency: ${dep_path}${NC}"
-                    cd "$dep_path"
-                    mvn clean install -DskipTests > /dev/null 2>&1
-                    if [ $? -ne 0 ]; then
-                        echo -e "${RED}Failed to build dependency: ${dep_path}${NC}"
-                        exit 1
-                    fi
-                    echo -e "${GREEN}✓ Dependency built: ${dep_path}${NC}"
-                fi
-            done
-            cd "$CURRENT_DIR"
-            echo ""
+        if ! build_local_dependencies "true"; then
+            exit 1
         fi
         
         mvn clean compile
@@ -608,6 +571,12 @@ case "$1" in
     test)
         echo -e "${GREEN}Running tests...${NC}"
         cd "$CURRENT_DIR"
+        
+        # Build local dependencies first
+        if ! build_local_dependencies "true"; then
+            exit 1
+        fi
+        
         mvn test
         ;;
     package)
@@ -620,29 +589,8 @@ case "$1" in
         cd "$CURRENT_DIR"
         
         # Build local dependencies first
-        LOCAL_DEPS=$(get_local_dependencies)
-        if [ -n "$LOCAL_DEPS" ]; then
-            echo -e "${YELLOW}Building local dependencies first...${NC}"
-            for dep_path in $LOCAL_DEPS; do
-                # Resolve relative paths
-                if [[ "$dep_path" != /* ]]; then
-                    dep_path="${CURRENT_DIR}/${dep_path}"
-                fi
-                
-                # Check if it's a valid Maven project
-                if [ -f "${dep_path}/pom.xml" ]; then
-                    echo -e "${BLUE}Building dependency: ${dep_path}${NC}"
-                    cd "$dep_path"
-                    mvn clean install -DskipTests > /dev/null 2>&1
-                    if [ $? -ne 0 ]; then
-                        echo -e "${RED}Failed to build dependency: ${dep_path}${NC}"
-                        exit 1
-                    fi
-                    echo -e "${GREEN}✓ Dependency built: ${dep_path}${NC}"
-                fi
-            done
-            cd "$CURRENT_DIR"
-            echo ""
+        if ! build_local_dependencies "true"; then
+            exit 1
         fi
         
         # Get project info from pom.xml (generic)
