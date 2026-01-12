@@ -252,7 +252,7 @@ build_local_dependencies() {
                 echo -e "${GREEN}✓ Dependency built: ${dep_path}${NC}"
             fi
         done
-        cd "$CURRENT_DIR"
+    cd "$CURRENT_DIR"
         echo ""
     fi
     return 0
@@ -563,7 +563,7 @@ case "$1" in
         
         # Build local dependencies first
         if ! build_local_dependencies "true"; then
-            exit 1
+                        exit 1
         fi
         
         mvn clean compile
