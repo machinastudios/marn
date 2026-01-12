@@ -619,6 +619,32 @@ case "$1" in
         echo -e "${GREEN}Building and running project...${NC}"
         cd "$CURRENT_DIR"
         
+        # Build local dependencies first
+        LOCAL_DEPS=$(get_local_dependencies)
+        if [ -n "$LOCAL_DEPS" ]; then
+            echo -e "${YELLOW}Building local dependencies first...${NC}"
+            for dep_path in $LOCAL_DEPS; do
+                # Resolve relative paths
+                if [[ "$dep_path" != /* ]]; then
+                    dep_path="${CURRENT_DIR}/${dep_path}"
+                fi
+                
+                # Check if it's a valid Maven project
+                if [ -f "${dep_path}/pom.xml" ]; then
+                    echo -e "${BLUE}Building dependency: ${dep_path}${NC}"
+                    cd "$dep_path"
+                    mvn clean install -DskipTests > /dev/null 2>&1
+                    if [ $? -ne 0 ]; then
+                        echo -e "${RED}Failed to build dependency: ${dep_path}${NC}"
+                        exit 1
+                    fi
+                    echo -e "${GREEN}✓ Dependency built: ${dep_path}${NC}"
+                fi
+            done
+            cd "$CURRENT_DIR"
+            echo ""
+        fi
+        
         # Get project info from pom.xml (generic)
         # Change to current directory first to ensure we're in the project directory
         cd "$CURRENT_DIR"
