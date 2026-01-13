@@ -1,10 +1,7 @@
 # Binaries
 dist/
-marn.exe
 *.exe
-
-# Go
-go.sum
+!marn-*.exe
 
 # IDE
 .idea/
