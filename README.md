@@ -158,21 +158,25 @@ You can also manually configure local dependencies in `pom.xml`:
 
 ```
 marn/
-├── main.go           # Entry point and command handling
-├── colors.go         # Terminal color definitions
-├── colors_windows.go # Windows-specific color handling
-├── colors_unix.go    # Unix-specific color handling
-├── commands.go       # Main commands (build, test, run, etc.)
-├── init.go           # Global installation command
-├── pom.go            # POM parsing and property extraction
-├── watch.go          # Watch mode implementation
-├── utils.go          # Utility functions
-├── go.mod            # Go module definition
-├── build.sh          # Linux/macOS build script
-├── build.ps1         # Windows build script
+├── src/                  # Source code
+│   ├── main.go           # Entry point and command handling
+│   ├── colors.go         # Terminal color definitions
+│   ├── colors_windows.go # Windows-specific color handling
+│   ├── colors_unix.go    # Unix-specific color handling
+│   ├── commands.go       # Main commands (build, test, run, etc.)
+│   ├── init.go           # Global installation command
+│   ├── pom.go            # POM parsing and property extraction
+│   ├── watch.go          # Watch mode implementation
+│   ├── utils.go          # Utility functions
+│   ├── go.mod            # Go module definition
+│   └── go.sum            # Go dependencies checksum
+├── dist/                 # Compiled binaries (generated)
+├── build.sh              # Linux/macOS build script
+├── build.ps1             # Windows build script
+├── README.md             # Documentation
 └── .github/
     └── workflows/
-        └── release.yml # GitHub Actions workflow
+        └── release.yml   # GitHub Actions workflow
 ```
 
 ## GitHub Actions

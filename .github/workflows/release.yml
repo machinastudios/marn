@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-    tags:
-      - 'v*'
   pull_request:
     branches:
       - master
@@ -39,6 +37,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -48,19 +48,43 @@ jobs:
       - name: Get version
         id: version
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          else
-            VERSION="dev-$(git rev-parse --short HEAD)"
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Parse version numbers
+          VERSION=${LATEST_TAG#v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+          
+          # Increment patch version
+          PATCH=$((PATCH + 1))
+          
+          # Check commit message for version bump keywords
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -qi "BREAKING CHANGE\|^feat!:\|^fix!:"; then
+            # Major version bump
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif echo "$COMMIT_MSG" | grep -qi "^feat:"; then
+            # Minor version bump
+            MINOR=$((MINOR + 1))
+            PATCH=0
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Build
+        working-directory: src
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o marn-${{ matrix.suffix }} .
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../marn-${{ matrix.suffix }} .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -72,11 +96,46 @@ jobs:
     name: Create Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: version
+        run: |
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+          
+          # Parse version numbers
+          VERSION=${LATEST_TAG#v}
+          MAJOR=$(echo $VERSION | cut -d. -f1)
+          MINOR=$(echo $VERSION | cut -d. -f2)
+          PATCH=$(echo $VERSION | cut -d. -f3)
+          
+          # Increment patch version
+          PATCH=$((PATCH + 1))
+          
+          # Check commit message for version bump keywords
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -qi "BREAKING CHANGE\|^feat!:\|^fix!:"; then
+            # Major version bump
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+          elif echo "$COMMIT_MSG" | grep -qi "^feat:"; then
+            # Minor version bump
+            MINOR=$((MINOR + 1))
+            PATCH=0
+          fi
+          
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "New version: $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -95,9 +154,18 @@ jobs:
           sha256sum * > checksums.txt
           cat checksums.txt
 
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
           files: |
             release/*
           generate_release_notes: true
@@ -105,45 +173,3 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Build on every push to master (without release)
-  build-dev:
-    name: Development Build
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' && !startsWith(github.ref, 'refs/tags/')
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.21'
-
-      - name: Test build for all platforms
-        run: |
-          # Linux amd64
-          GOOS=linux GOARCH=amd64 go build -o /dev/null .
-          echo "✓ Linux amd64"
-
-          # Linux arm64
-          GOOS=linux GOARCH=arm64 go build -o /dev/null .
-          echo "✓ Linux arm64"
-
-          # Windows amd64
-          GOOS=windows GOARCH=amd64 go build -o /dev/null .
-          echo "✓ Windows amd64"
-
-          # Darwin amd64
-          GOOS=darwin GOARCH=amd64 go build -o /dev/null .
-          echo "✓ Darwin amd64"
-
-          # Darwin arm64
-          GOOS=darwin GOARCH=arm64 go build -o /dev/null .
-          echo "✓ Darwin arm64"
-
-          echo "All platforms build successfully!"
-
-      - name: Run tests
-        run: go test -v ./... || echo "No tests found"
