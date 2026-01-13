@@ -1,0 +1,12 @@
+# Binaries
+dist/
+marn.exe
+*.exe
+
+# Go
+go.sum
+
+# IDE
+.idea/
+.vscode/
+*.iml
