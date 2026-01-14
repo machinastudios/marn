@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 )
 
 // isWindows returns true if running on Windows
@@ -49,6 +51,9 @@ func getMvnCommand() string {
 func runMvnCommand(args ...string) error {
 	mvnCmd := getMvnCommand()
 
+	// Display command with $ prefix
+	fmt.Printf("%s$ %s %s%s\n", colors.Blue, mvnCmd, strings.Join(args, " "), colors.Reset)
+
 	cmd := exec.Command(mvnCmd, args...)
 	cmd.Dir = currentDir
 	cmd.Stdout = os.Stdout
@@ -60,7 +65,10 @@ func runMvnCommand(args ...string) error {
 // runShellCommand runs a shell command
 func runShellCommand(command string) error {
 	// Expand environment variables in command
-	command = expandEnvVars(command)
+	expandedCommand := expandEnvVars(command)
+
+	// Display command with $ prefix
+	fmt.Printf("%s$ %s%s\n", colors.Blue, expandedCommand, colors.Reset)
 
 	var cmd *exec.Cmd
 
@@ -126,11 +134,11 @@ function which {
     if ($cmd) { $cmd.Source }
 }
 
-` + command
+` + expandedCommand
 
 		cmd = exec.Command("powershell", "-NoProfile", "-Command", aliasScript)
 	} else {
-		cmd = exec.Command("bash", "-c", command)
+		cmd = exec.Command("bash", "-c", expandedCommand)
 	}
 
 	cmd.Dir = currentDir
