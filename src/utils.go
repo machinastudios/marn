@@ -59,6 +59,9 @@ func runMvnCommand(args ...string) error {
 
 // runShellCommand runs a shell command
 func runShellCommand(command string) error {
+    // Expand environment variables in command
+    command = expandEnvVars(command)
+
     var cmd *exec.Cmd
 
     if isWindows() {

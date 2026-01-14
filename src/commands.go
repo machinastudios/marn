@@ -135,6 +135,9 @@ func executeScript(scriptName string) {
         os.Exit(1)
     }
 
+    // Expand environment variables in script content
+    content = expandEnvVars(content)
+
     fmt.Printf("%sExecuting script: %s%s\n", colors.Yellow, scriptName, colors.Reset)
     fmt.Printf("%sCommand: %s%s\n", colors.Blue, content, colors.Reset)
     fmt.Println()

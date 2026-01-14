@@ -25,6 +25,11 @@ func main() {
         os.Exit(1)
     }
 
+    // Load .env file if it exists
+    if err := loadEnvFile(); err != nil {
+        fmt.Printf("%sWarning: Could not load .env file: %v%s\n", colors.Yellow, err, colors.Reset)
+    }
+
     pomFile = filepath.Join(currentDir, "pom.xml")
 
     // Check if pom.xml exists
