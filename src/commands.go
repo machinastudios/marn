@@ -1,232 +1,446 @@
 package main
 
 import (
-    "fmt"
-    "io"
-    "os"
-    "os/exec"
-    "path/filepath"
-    "strings"
-    "time"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 )
 
 // installDependencies runs mvn dependency:resolve
 func installDependencies() {
-    fmt.Printf("%sInstalling dependencies...%s\n", colors.Green, colors.Reset)
-    runMvnCommand("dependency:resolve")
+	// Run pre-install script
+	if err := runPreScript("install"); err != nil {
+		fmt.Printf("%s✗ Pre-install script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%sInstalling dependencies...%s\n", colors.Green, colors.Reset)
+
+	if err := runMvnCommand("dependency:resolve"); err != nil {
+		os.Exit(1)
+	}
+
+	// Run post-install script
+	if err := runPostScript("install"); err != nil {
+		fmt.Printf("%s✗ Post-install script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // linkProject links the project to local Maven repository
 func linkProject() {
+	if _, err := os.Stat(pomFile); os.IsNotExist(err) {
+		fmt.Printf("%sError: pom.xml not found%s\n", colors.Red, colors.Reset)
+		fmt.Println("Please run 'marn link' from a Maven project directory.")
+		os.Exit(1)
+	}
 
-    if _, err := os.Stat(pomFile); os.IsNotExist(err) {
-        fmt.Printf("%sError: pom.xml not found%s\n", colors.Red, colors.Reset)
-        fmt.Println("Please run 'marn link' from a Maven project directory.")
-        os.Exit(1)
-    }
+	// Run pre-link script
+	if err := runPreScript("link"); err != nil {
+		fmt.Printf("%s✗ Pre-link script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    fmt.Printf("%sLinking project to local Maven repository...%s\n", colors.Blue, colors.Reset)
-    fmt.Println()
+	fmt.Printf("%sLinking project to local Maven repository...%s\n", colors.Blue, colors.Reset)
+	fmt.Println()
 
-    fmt.Printf("%sInstalling project to ~/.m2/repository...%s\n", colors.Green, colors.Reset)
+	fmt.Printf("%sInstalling project to ~/.m2/repository...%s\n", colors.Green, colors.Reset)
 
-    if err := runMvnCommand("clean", "install", "-DskipTests"); err != nil {
-        fmt.Printf("%s✗ Failed to link project%s\n", colors.Red, colors.Reset)
-        os.Exit(1)
-    }
+	if err := runMvnCommand("clean", "install", "-DskipTests"); err != nil {
+		fmt.Printf("%s✗ Failed to link project%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    fmt.Println()
-    fmt.Printf("%s✓ Project linked to local Maven repository!%s\n", colors.Green, colors.Reset)
-    fmt.Println()
-    fmt.Println("Other projects can now use this as a dependency.")
+	fmt.Println()
+	fmt.Printf("%s✓ Project linked to local Maven repository!%s\n", colors.Green, colors.Reset)
+	fmt.Println()
+	fmt.Println("Other projects can now use this as a dependency.")
+
+	// Run post-link script
+	if err := runPostScript("link"); err != nil {
+		fmt.Printf("%s✗ Post-link script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // buildProject builds the project
 func buildProject() {
-    fmt.Printf("%sBuilding project...%s\n", colors.Green, colors.Reset)
+	// Run pre-build script
+	if err := runPreScript("build"); err != nil {
+		fmt.Printf("%s✗ Pre-build script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    if err := buildLocalDependencies(true); err != nil {
-        os.Exit(1)
-    }
+	fmt.Printf("%sBuilding project...%s\n", colors.Green, colors.Reset)
 
-    runMvnCommand("clean", "compile")
+	if err := buildLocalDependencies(true); err != nil {
+		os.Exit(1)
+	}
+
+	// Use package to generate JAR file
+	if err := runMvnCommand("clean", "package", "-DskipTests"); err != nil {
+		os.Exit(1)
+	}
+
+	// Set TARGET_DIR environment variable
+	targetDir := filepath.Join(currentDir, "target")
+	absTargetDir, err := filepath.Abs(targetDir)
+	if err == nil {
+		os.Setenv("TARGET_DIR", absTargetDir)
+	}
+
+	// Find the most recent JAR and set BUILD_ARTIFACT
+	jarFile := findJarFile()
+	if jarFile != "" {
+		absPath, err := filepath.Abs(jarFile)
+		if err == nil {
+			os.Setenv("BUILD_ARTIFACT", absPath)
+		}
+	} else {
+		// Clear BUILD_ARTIFACT if no JAR found (mvn compile doesn't create JAR)
+		os.Setenv("BUILD_ARTIFACT", "")
+	}
+
+	// Run post-build script
+	if err := runPostScript("build"); err != nil {
+		fmt.Printf("%s✗ Post-build script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // testProject runs tests
 func testProject() {
-    fmt.Printf("%sRunning tests...%s\n", colors.Green, colors.Reset)
+	// Run pre-test script
+	if err := runPreScript("test"); err != nil {
+		fmt.Printf("%s✗ Pre-test script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    if err := buildLocalDependencies(true); err != nil {
-        os.Exit(1)
-    }
+	fmt.Printf("%sRunning tests...%s\n", colors.Green, colors.Reset)
 
-    runMvnCommand("test")
+	if err := buildLocalDependencies(true); err != nil {
+		os.Exit(1)
+	}
+
+	if err := runMvnCommand("test"); err != nil {
+		os.Exit(1)
+	}
+
+	// Run post-test script
+	if err := runPostScript("test"); err != nil {
+		fmt.Printf("%s✗ Post-test script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // packageProject packages the project
 func packageProject() {
-    fmt.Printf("%sPackaging project...%s\n", colors.Green, colors.Reset)
-    runMvnCommand("clean", "package")
+	// Run pre-package script
+	if err := runPreScript("package"); err != nil {
+		fmt.Printf("%s✗ Pre-package script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%sPackaging project...%s\n", colors.Green, colors.Reset)
+
+	if err := runMvnCommand("clean", "package"); err != nil {
+		os.Exit(1)
+	}
+
+	// Set TARGET_DIR environment variable
+	targetDir := filepath.Join(currentDir, "target")
+	absTargetDir, err := filepath.Abs(targetDir)
+	if err == nil {
+		os.Setenv("TARGET_DIR", absTargetDir)
+	}
+
+	// Run post-package script
+	if err := runPostScript("package"); err != nil {
+		fmt.Printf("%s✗ Post-package script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // cleanProject cleans the project
 func cleanProject() {
-    fmt.Printf("%sCleaning project...%s\n", colors.Green, colors.Reset)
-    runMvnCommand("clean")
+	// Run pre-clean script
+	if err := runPreScript("clean"); err != nil {
+		fmt.Printf("%s✗ Pre-clean script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
+
+	fmt.Printf("%sCleaning project...%s\n", colors.Green, colors.Reset)
+
+	if err := runMvnCommand("clean"); err != nil {
+		os.Exit(1)
+	}
+
+	// Run post-clean script
+	if err := runPostScript("clean"); err != nil {
+		fmt.Printf("%s✗ Post-clean script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // runProject builds and runs the JAR
 func runProject() {
-    fmt.Printf("%sBuilding and running project...%s\n", colors.Green, colors.Reset)
+	// Run pre-run script
+	if err := runPreScript("run"); err != nil {
+		fmt.Printf("%s✗ Pre-run script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    if err := buildLocalDependencies(true); err != nil {
-        os.Exit(1)
-    }
+	fmt.Printf("%sBuilding and running project...%s\n", colors.Green, colors.Reset)
 
-    // Get artifact ID and main class
-    artifactID := getArtifactID()
-    mainClass := getMainClass()
+	if err := buildLocalDependencies(true); err != nil {
+		os.Exit(1)
+	}
 
-    // Kill existing processes
-    killExistingProcesses(artifactID, mainClass)
+	// Get artifact ID and main class
+	artifactID := getArtifactID()
+	mainClass := getMainClass()
 
-    // Create data directory if needed
-    os.MkdirAll("data", 0755)
+	// Kill existing processes
+	killExistingProcesses(artifactID, mainClass)
 
-    // Build the project
-    if err := runMvnCommand("clean", "package", "-DskipTests"); err != nil {
-        os.Exit(1)
-    }
+	// Create data directory if needed
+	os.MkdirAll("data", 0755)
 
-    // Find the JAR file
-    jarFile := findJarFile()
-    if jarFile == "" {
-        fmt.Printf("%sError: No JAR file found in target/ directory%s\n", colors.Red, colors.Reset)
-        os.Exit(1)
-    }
+	// Build the project
+	if err := runMvnCommand("clean", "package", "-DskipTests"); err != nil {
+		os.Exit(1)
+	}
 
-    fmt.Printf("%sRunning: %s%s\n", colors.Green, jarFile, colors.Reset)
-    fmt.Println()
+	// Set TARGET_DIR environment variable
+	targetDir := filepath.Join(currentDir, "target")
+	absTargetDir, err := filepath.Abs(targetDir)
+	if err == nil {
+		os.Setenv("TARGET_DIR", absTargetDir)
+	}
 
-    // Run the JAR with additional arguments
-    args := []string{"-jar", jarFile}
-    if len(os.Args) > 2 {
-        args = append(args, os.Args[2:]...)
-    }
+	// Find the JAR file
+	jarFile := findJarFile()
+	if jarFile == "" {
+		fmt.Printf("%sError: No JAR file found in target/ directory%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 
-    cmd := exec.Command("java", args...)
-    cmd.Dir = currentDir
-    cmd.Stdout = os.Stdout
-    cmd.Stderr = os.Stderr
-    cmd.Stdin = os.Stdin
+	// Set BUILD_ARTIFACT
+	absPath, err := filepath.Abs(jarFile)
+	if err == nil {
+		os.Setenv("BUILD_ARTIFACT", absPath)
+	}
 
-    cmd.Run()
+	fmt.Printf("%sRunning: %s%s\n", colors.Green, jarFile, colors.Reset)
+	fmt.Println()
+
+	// Run the JAR with additional arguments
+	args := []string{"-jar", jarFile}
+	if len(os.Args) > 2 {
+		args = append(args, os.Args[2:]...)
+	}
+
+	cmd := exec.Command("java", args...)
+	cmd.Dir = currentDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+
+	cmd.Run()
+
+	// Run post-run script
+	if err := runPostScript("run"); err != nil {
+		fmt.Printf("%s✗ Post-run script failed%s\n", colors.Red, colors.Reset)
+		os.Exit(1)
+	}
 }
 
 // executeScript executes a custom script from pom.xml
 func executeScript(scriptName string) {
-    scripts := getScriptsFromPom()
+	scripts := getScriptsFromPom()
 
-    content, exists := scripts[scriptName]
-    if !exists {
-        fmt.Printf("%sError: Script '%s' not found in pom.xml%s\n", colors.Red, scriptName, colors.Reset)
-        fmt.Println()
-        listScripts()
-        os.Exit(1)
-    }
+	content, exists := scripts[scriptName]
+	if !exists {
+		fmt.Printf("%sError: Script '%s' not found in pom.xml%s\n", colors.Red, scriptName, colors.Reset)
+		fmt.Println()
+		listScripts()
+		os.Exit(1)
+	}
 
-    // Expand environment variables in script content
-    content = expandEnvVars(content)
+	// Run pre-script if it exists
+	preScriptName := "pre" + strings.ToUpper(scriptName[:1]) + scriptName[1:]
+	if preScript, preExists := scripts[preScriptName]; preExists {
+		fmt.Printf("%sRunning pre-script: %s%s\n", colors.Yellow, preScriptName, colors.Reset)
+		if err := runShellCommand(preScript); err != nil {
+			fmt.Printf("%s✗ Pre-script failed%s\n", colors.Red, colors.Reset)
+			os.Exit(1)
+		}
+	}
 
-    fmt.Printf("%sExecuting script: %s%s\n", colors.Yellow, scriptName, colors.Reset)
-    fmt.Printf("%sCommand: %s%s\n", colors.Blue, content, colors.Reset)
-    fmt.Println()
+	// Expand environment variables in script content
+	content = expandEnvVars(content)
 
-    runShellCommand(content)
+	fmt.Printf("%sExecuting script: %s%s\n", colors.Yellow, scriptName, colors.Reset)
+	fmt.Printf("%sCommand: %s%s\n", colors.Blue, content, colors.Reset)
+	fmt.Println()
+
+	if err := runShellCommand(content); err != nil {
+		os.Exit(1)
+	}
+
+	// Run post-script if it exists
+	postScriptName := "post" + strings.ToUpper(scriptName[:1]) + scriptName[1:]
+	if postScript, postExists := scripts[postScriptName]; postExists {
+		fmt.Printf("%sRunning post-script: %s%s\n", colors.Yellow, postScriptName, colors.Reset)
+		if err := runShellCommand(postScript); err != nil {
+			fmt.Printf("%s✗ Post-script failed%s\n", colors.Red, colors.Reset)
+			os.Exit(1)
+		}
+	}
 }
 
 // buildLocalDependencies builds all local dependencies
 func buildLocalDependencies(skipTests bool) error {
-    deps := getLocalDependencies()
+	deps := getLocalDependencies()
 
-    if len(deps) == 0 {
-        return nil
-    }
+	if len(deps) == 0 {
+		return nil
+	}
 
-    fmt.Printf("%sBuilding local dependencies first...%s\n", colors.Yellow, colors.Reset)
+	fmt.Printf("%sBuilding local dependencies first...%s\n", colors.Yellow, colors.Reset)
 
-    for _, depPath := range deps {
-        pomPath := filepath.Join(depPath, "pom.xml")
+	for _, depPath := range deps {
+		pomPath := filepath.Join(depPath, "pom.xml")
 
-        if _, err := os.Stat(pomPath); err == nil {
-            fmt.Printf("%sBuilding dependency: %s%s\n", colors.Blue, depPath, colors.Reset)
+		if _, err := os.Stat(pomPath); err == nil {
+			fmt.Printf("%sBuilding dependency: %s%s\n", colors.Blue, depPath, colors.Reset)
 
-            args := []string{"clean", "install"}
-            if skipTests {
-                args = append(args, "-DskipTests")
-            }
+			args := []string{"clean", "install"}
+			if skipTests {
+				args = append(args, "-DskipTests")
+			}
 
-            cmd := exec.Command("mvn", args...)
-            cmd.Dir = depPath
-            cmd.Stdout = io.Discard
-            cmd.Stderr = io.Discard
+			cmd := exec.Command("mvn", args...)
+			cmd.Dir = depPath
+			cmd.Stdout = io.Discard
+			cmd.Stderr = io.Discard
 
-            if err := cmd.Run(); err != nil {
-                fmt.Printf("%sFailed to build dependency: %s%s\n", colors.Red, depPath, colors.Reset)
-                return err
-            }
+			if err := cmd.Run(); err != nil {
+				fmt.Printf("%sFailed to build dependency: %s%s\n", colors.Red, depPath, colors.Reset)
+				return err
+			}
 
-            fmt.Printf("%s✓ Dependency built: %s%s\n", colors.Green, depPath, colors.Reset)
-        }
-    }
+			fmt.Printf("%s✓ Dependency built: %s%s\n", colors.Green, depPath, colors.Reset)
+		}
+	}
 
-    fmt.Println()
-    return nil
+	fmt.Println()
+	return nil
 }
 
-// findJarFile finds the first JAR file in target directory
+// findJarFile finds the most recently modified JAR file in target directory
+// Prefers JARs that don't start with "original-"
 func findJarFile() string {
-    targetDir := filepath.Join(currentDir, "target")
+	targetDir := filepath.Join(currentDir, "target")
 
-    entries, err := os.ReadDir(targetDir)
-    if err != nil {
-        return ""
-    }
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		return ""
+	}
 
-    for _, entry := range entries {
+	var latestJar string
+	var latestTime time.Time
+	var latestOriginalJar string
+	var latestOriginalTime time.Time
 
-        if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jar") {
-            return filepath.Join(targetDir, entry.Name())
-        }
-    }
+	for _, entry := range entries {
 
-    return ""
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".jar") {
+			jarPath := filepath.Join(targetDir, entry.Name())
+			info, err := os.Stat(jarPath)
+
+			if err == nil {
+				modTime := info.ModTime()
+				isOriginal := strings.HasPrefix(entry.Name(), "original-")
+
+				if isOriginal {
+					// Track original JARs separately
+					if latestOriginalJar == "" || modTime.After(latestOriginalTime) {
+						latestOriginalJar = jarPath
+						latestOriginalTime = modTime
+					}
+				} else {
+					// Prefer non-original JARs
+					if latestJar == "" || modTime.After(latestTime) {
+						latestJar = jarPath
+						latestTime = modTime
+					}
+				}
+			}
+		}
+	}
+
+	// Return non-original JAR if found, otherwise fall back to original JAR
+	if latestJar != "" {
+		return latestJar
+	}
+
+	return latestOriginalJar
+}
+
+// runPreScript executes a pre script if it exists
+func runPreScript(commandName string) error {
+	scripts := getScriptsFromPom()
+	preScriptName := "pre" + strings.ToUpper(commandName[:1]) + commandName[1:]
+
+	if script, exists := scripts[preScriptName]; exists {
+		fmt.Printf("%sRunning pre-script: %s%s\n", colors.Yellow, preScriptName, colors.Reset)
+		return runShellCommand(script)
+	}
+
+	return nil
+}
+
+// runPostScript executes a post script if it exists
+func runPostScript(commandName string) error {
+	scripts := getScriptsFromPom()
+	postScriptName := "post" + strings.ToUpper(commandName[:1]) + commandName[1:]
+
+	if script, exists := scripts[postScriptName]; exists {
+		fmt.Printf("%sRunning post-script: %s%s\n", colors.Yellow, postScriptName, colors.Reset)
+		return runShellCommand(script)
+	}
+
+	return nil
 }
 
 // killExistingProcesses kills existing Java processes
 func killExistingProcesses(artifactID, mainClass string) {
+	if isWindows() {
 
-    if isWindows() {
+		// On Windows, use taskkill
+		if mainClass != "" {
+			exec.Command("taskkill", "/F", "/FI", fmt.Sprintf("WINDOWTITLE eq *%s*", mainClass)).Run()
+		}
 
-        // On Windows, use taskkill
-        if mainClass != "" {
-            exec.Command("taskkill", "/F", "/FI", fmt.Sprintf("WINDOWTITLE eq *%s*", mainClass)).Run()
-        }
+		if artifactID != "" {
+			exec.Command("taskkill", "/F", "/FI", fmt.Sprintf("WINDOWTITLE eq *%s*", artifactID)).Run()
+		}
+	} else {
 
-        if artifactID != "" {
-            exec.Command("taskkill", "/F", "/FI", fmt.Sprintf("WINDOWTITLE eq *%s*", artifactID)).Run()
-        }
-    } else {
+		// On Unix, use pkill
+		if mainClass != "" {
+			exec.Command("pkill", "-f", fmt.Sprintf("java.*%s", mainClass)).Run()
+		}
 
-        // On Unix, use pkill
-        if mainClass != "" {
-            exec.Command("pkill", "-f", fmt.Sprintf("java.*%s", mainClass)).Run()
-        }
+		if artifactID != "" {
+			exec.Command("pkill", "-f", fmt.Sprintf("java.*%s.*jar", artifactID)).Run()
+		}
+	}
 
-        if artifactID != "" {
-            exec.Command("pkill", "-f", fmt.Sprintf("java.*%s.*jar", artifactID)).Run()
-        }
-    }
-
-    time.Sleep(time.Second)
+	time.Sleep(time.Second)
 }

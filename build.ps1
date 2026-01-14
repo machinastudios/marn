@@ -19,8 +19,10 @@ Write-Host "Building marn..." -ForegroundColor Blue
 Write-Host "Version: $VERSION" -ForegroundColor Yellow
 Write-Host ""
 
-# Create dist directory
+# Create dist directories
 New-Item -ItemType Directory -Force -Path dist | Out-Null
+New-Item -ItemType Directory -Force -Path dist/linux | Out-Null
+New-Item -ItemType Directory -Force -Path dist/macos | Out-Null
 
 # Change to src directory
 Push-Location src
@@ -33,37 +35,19 @@ go mod tidy
 Write-Host "Building for Windows (amd64)..." -ForegroundColor Green
 $env:GOOS = "windows"
 $env:GOARCH = "amd64"
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn-windows-amd64.exe .
+go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn.exe .
 
 # Build for Linux amd64
 Write-Host "Building for Linux (amd64)..." -ForegroundColor Green
 $env:GOOS = "linux"
 $env:GOARCH = "amd64"
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn-linux-amd64 .
-
-# Build for Linux ARM64
-Write-Host "Building for Linux (arm64)..." -ForegroundColor Green
-$env:GOOS = "linux"
-$env:GOARCH = "arm64"
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn-linux-arm64 .
+go build -ldflags "-X main.Version=$VERSION" -o ../dist/linux/marn .
 
 # Build for macOS amd64
 Write-Host "Building for macOS (amd64)..." -ForegroundColor Green
 $env:GOOS = "darwin"
 $env:GOARCH = "amd64"
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn-darwin-amd64 .
-
-# Build for macOS ARM64 (M1/M2)
-Write-Host "Building for macOS (arm64)..." -ForegroundColor Green
-$env:GOOS = "darwin"
-$env:GOARCH = "arm64"
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn-darwin-arm64 .
-
-# Build for current platform
-Write-Host "Building for current platform..." -ForegroundColor Green
-Remove-Item Env:GOOS -ErrorAction SilentlyContinue
-Remove-Item Env:GOARCH -ErrorAction SilentlyContinue
-go build -ldflags "-X main.Version=$VERSION" -o ../dist/marn.exe .
+go build -ldflags "-X main.Version=$VERSION" -o ../dist/macos/marn .
 
 Pop-Location
 

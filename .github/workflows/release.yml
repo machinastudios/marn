@@ -15,24 +15,6 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - goos: linux
-            goarch: amd64
-            suffix: linux-amd64
-          - goos: linux
-            goarch: arm64
-            suffix: linux-arm64
-          - goos: windows
-            goarch: amd64
-            suffix: windows-amd64.exe
-          - goos: darwin
-            goarch: amd64
-            suffix: darwin-amd64
-          - goos: darwin
-            goarch: arm64
-            suffix: darwin-arm64
 
     steps:
       - name: Checkout code
@@ -78,19 +60,38 @@ jobs:
           echo "New version: $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build
+      - name: Build for Windows
         working-directory: src
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          GOOS: windows
+          GOARCH: amd64
         run: |
-          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../marn-${{ matrix.suffix }} .
+          mkdir -p ../dist
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../dist/marn.exe .
 
-      - name: Upload artifact
+      - name: Build for Linux
+        working-directory: src
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          mkdir -p ../dist/linux
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../dist/linux/marn .
+
+      - name: Build for macOS
+        working-directory: src
+        env:
+          GOOS: darwin
+          GOARCH: amd64
+        run: |
+          mkdir -p ../dist/macos
+          go build -ldflags "-X main.Version=${{ steps.version.outputs.version }}" -o ../dist/macos/marn .
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: marn-${{ matrix.suffix }}
-          path: marn-${{ matrix.suffix }}
+          name: marn-binaries
+          path: dist/
 
   release:
     name: Create Release
@@ -145,7 +146,9 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find dist -type f -name 'marn-*' -exec mv {} release/ \;
+          cp dist/marn.exe release/marn-windows-amd64.exe
+          cp dist/linux/marn release/marn-linux-amd64
+          cp dist/macos/marn release/marn-darwin-amd64
           ls -la release/
 
       - name: Create checksums

@@ -115,6 +115,87 @@ marn dev
 marn lint
 ```
 
+### Pre and Post Scripts
+
+You can define `pre*` and `post*` scripts that run before and after any command (including custom scripts):
+
+```xml
+<properties>
+    <script.preBuild>echo "Preparing build..."</script.preBuild>
+    <script.postBuild>cp ${BUILD_ARTIFACT} dist/</script.postBuild>
+    
+    <script.dev>mvn clean compile</script.dev>
+    <script.preDev>echo "Starting dev mode"</script.preDev>
+    <script.postDev>echo "Dev mode complete"</script.postDev>
+</properties>
+```
+
+Pre-scripts run before the main command, and post-scripts run after. If a pre-script fails, the main command won't run. If a post-script fails, the program exits with an error.
+
+## Environment Variables
+
+Marn automatically sets the following environment variables that you can use in your scripts:
+
+### `BUILD_ARTIFACT`
+Set after `marn build` and `marn run`. Contains the absolute path to the most recently compiled JAR file.
+
+### `TARGET_DIR`
+Set after `marn build`, `marn package`, and `marn run`. Contains the absolute path to the `target/` directory.
+
+### Using Variables in Scripts
+
+You can use environment variables in scripts using `${VAR}` or `$VAR` syntax:
+
+```xml
+<properties>
+    <script.postBuild>cp ${BUILD_ARTIFACT} ../deploy/</script.postBuild>
+    <script.deploy>scp ${BUILD_ARTIFACT} server:/opt/app/</script.deploy>
+    <script.copyJars>cp ${TARGET_DIR}/*.jar dist/</script.copyJars>
+</properties>
+```
+
+## .env File Support
+
+Marn automatically loads environment variables from a `.env` file in your project root if it exists:
+
+```env
+DATABASE_URL=jdbc:postgresql://localhost:5432/mydb
+API_KEY=secret123
+PORT=8080
+```
+
+Variables in `.env` won't override existing environment variables. You can use these variables in your scripts:
+
+```xml
+<properties>
+    <script.run>java -jar ${BUILD_ARTIFACT} --port=${PORT}</script.run>
+</properties>
+```
+
+## Cross-Platform Commands
+
+Marn provides Unix-like command aliases on Windows, so you can use the same scripts across all platforms:
+
+- `cp` - Copy files/directories (supports wildcards like `*.jar`)
+- `mv` - Move/rename files
+- `rm` - Remove files
+- `mkdir` - Create directories
+- `touch` - Create files or update timestamps
+- `cat` - Display file contents
+- `grep` - Search text in files
+- `ls` - List files
+- `pwd` - Print working directory
+- `which` - Find command location
+
+Example:
+
+```xml
+<properties>
+    <script.postBuild>cp ${TARGET_DIR}/*.jar ../deploy/</script.postBuild>
+    <script.cleanup>rm -rf ${TARGET_DIR}/classes</script.cleanup>
+</properties>
+```
+
 ## Watch Mode
 
 Configure watch mode in your `pom.xml`:
@@ -205,7 +286,8 @@ The workflow will automatically:
 
 ### Windows
 
-- Uses `cmd /C` to run shell commands
+- Uses PowerShell to run shell commands
+- Provides Unix command aliases (`cp`, `mv`, `rm`, etc.)
 - Uses `taskkill` to kill existing Java processes
 - Installs to `%USERPROFILE%\bin`
 - Make sure Maven (`mvn.cmd`) is in your PATH
