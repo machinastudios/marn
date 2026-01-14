@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -326,8 +325,8 @@ func buildLocalDependencies(skipTests bool) error {
 
 			cmd := exec.Command("mvn", args...)
 			cmd.Dir = depPath
-			cmd.Stdout = io.Discard
-			cmd.Stderr = io.Discard
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
 
 			if err := cmd.Run(); err != nil {
 				fmt.Printf("%sFailed to build dependency: %s%s\n", colors.Red, depPath, colors.Reset)
