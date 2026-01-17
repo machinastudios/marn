@@ -54,6 +54,12 @@ func linkProject() {
 		os.Exit(1)
 	}
 
+	// Update hash after successful link
+	if err := updateSrcHash(currentDir); err != nil {
+		// Log but don't fail the link if hash update fails
+		fmt.Printf("%sWarning: Could not update hash: %v%s\n", colors.Yellow, err, colors.Reset)
+	}
+
 	fmt.Println()
 	fmt.Printf("%s✓ Project linked to local Maven repository!%s\n", colors.Green, colors.Reset)
 	fmt.Println()
@@ -316,7 +322,26 @@ func buildLocalDependencies(skipTests bool) error {
 		pomPath := filepath.Join(depPath, "pom.xml")
 
 		if _, err := os.Stat(pomPath); err == nil {
-			fmt.Printf("%sBuilding dependency: %s%s\n", colors.Blue, depPath, colors.Reset)
+			// Check if dependency needs to be rebuilt
+			shouldRebuild, currentHash, storedHash, err := shouldRebuildDependency(depPath)
+			if err != nil {
+				// If we can't check hash, rebuild to be safe
+				shouldRebuild = true
+			}
+
+			relPath, err := filepath.Rel(currentDir, depPath)
+			if err != nil {
+				relPath = depPath
+			}
+
+			if !shouldRebuild {
+				fmt.Printf("%sSkipping dependency (no changes): %s%s\n", colors.Green, relPath, colors.Reset)
+				printHashComparison(depPath, currentHash, storedHash)
+				continue
+			}
+
+			fmt.Printf("%sBuilding dependency: %s%s\n", colors.Blue, relPath, colors.Reset)
+			printHashComparison(depPath, currentHash, storedHash)
 
 			args := []string{"clean", "install"}
 			if skipTests {
@@ -333,7 +358,13 @@ func buildLocalDependencies(skipTests bool) error {
 				return err
 			}
 
-			fmt.Printf("%s✓ Dependency built: %s%s\n", colors.Green, depPath, colors.Reset)
+			// Update hash after successful build
+			if err := updateSrcHash(depPath); err != nil {
+				// Log but don't fail the build if hash update fails
+				fmt.Printf("%sWarning: Could not update hash for %s: %v%s\n", colors.Yellow, depPath, err, colors.Reset)
+			}
+
+			fmt.Printf("%s✓ Dependency built: %s%s\n", colors.Green, relPath, colors.Reset)
 		}
 	}
 

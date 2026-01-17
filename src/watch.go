@@ -239,27 +239,51 @@ func handleFileChange(event fsnotify.Event, config WatchConfig, localDeps []stri
     fmt.Printf("%sEvent:%s %s\n", colors.Yellow, colors.Reset, event.Op.String())
 
     if isLocalDep {
-        fmt.Printf("%sLinking dependency and rebuilding...%s\n", colors.Green, colors.Reset)
-
-        // Build and install the dependency
-        fmt.Printf("%sLinking dependency: %s%s\n", colors.Blue, changedDepPath, colors.Reset)
-
-        args := []string{"clean", "install"}
-        if config.SkipTests {
-            args = append(args, "-DskipTests")
+        // Check if dependency actually needs to be rebuilt
+        shouldRebuild, currentHash, storedHash, err := shouldRebuildDependency(changedDepPath)
+        if err != nil {
+            // If we can't check hash, rebuild to be safe
+            shouldRebuild = true
         }
 
-        cmd := exec.Command("mvn", args...)
-        cmd.Dir = changedDepPath
-        cmd.Stdout = io.Discard
-        cmd.Stderr = io.Discard
-
-        if err := cmd.Run(); err != nil {
-            fmt.Printf("%sFailed to link dependency: %s%s\n", colors.Red, changedDepPath, colors.Reset)
-            return
+        relPath, err := filepath.Rel(currentDir, changedDepPath)
+        if err != nil {
+            relPath = changedDepPath
         }
 
-        fmt.Printf("%s✓ Dependency linked: %s%s\n", colors.Green, changedDepPath, colors.Reset)
+        if !shouldRebuild {
+            fmt.Printf("%sSkipping dependency (no changes): %s%s\n", colors.Green, relPath, colors.Reset)
+            printHashComparison(changedDepPath, currentHash, storedHash)
+        } else {
+            fmt.Printf("%sLinking dependency and rebuilding...%s\n", colors.Green, colors.Reset)
+
+            // Build and install the dependency
+            fmt.Printf("%sLinking dependency: %s%s\n", colors.Blue, relPath, colors.Reset)
+            printHashComparison(changedDepPath, currentHash, storedHash)
+
+            args := []string{"clean", "install"}
+            if config.SkipTests {
+                args = append(args, "-DskipTests")
+            }
+
+            cmd := exec.Command("mvn", args...)
+            cmd.Dir = changedDepPath
+            cmd.Stdout = io.Discard
+            cmd.Stderr = io.Discard
+
+            if err := cmd.Run(); err != nil {
+                fmt.Printf("%sFailed to link dependency: %s%s\n", colors.Red, changedDepPath, colors.Reset)
+                return
+            }
+
+            // Update hash after successful build
+            if err := updateSrcHash(changedDepPath); err != nil {
+                // Log but don't fail the build if hash update fails
+                fmt.Printf("%sWarning: Could not update hash for %s: %v%s\n", colors.Yellow, changedDepPath, err, colors.Reset)
+            }
+
+            fmt.Printf("%s✓ Dependency linked: %s%s\n", colors.Green, relPath, colors.Reset)
+        }
     }
 
     // Rebuild project
